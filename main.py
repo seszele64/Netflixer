@@ -14,9 +14,9 @@ def center(var: str, space: int = None):  # From Pycenter
 
 class Netflixer:
     def __init__(self):
-        if os.name == "posix":
-            print("WARNING: This program is designed to run on Windows only.")
-            quit(1)
+        # if os.name == "posix":
+        #     print("WARNING: This program is designed to run on Windows only.")
+        #     quit(1)
         self.proxies = []
         self.combos = []
         self.hits = 0
