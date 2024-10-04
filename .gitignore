@@ -1,2 +1,5 @@
 # ignore __pycache__ folders in all directories
 __pycache__/
+
+# ignore instructions folder
+instructions/
